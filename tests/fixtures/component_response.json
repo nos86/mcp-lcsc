@@ -1,0 +1,24 @@
+{
+  "result": {
+    "productDetail": {
+      "productCode": "C2040",
+      "productModel": "NE555DR",
+      "brandNameEn": "Texas Instruments",
+      "parentCatalogName": "Timers",
+      "productDescEn": "Precision Timers",
+      "encapStandard": "SOIC-8",
+      "stockNumber": 15230,
+      "moq": 1,
+      "orderMultiple": 1,
+      "productArrange": "Basic",
+      "datasheetUrl": "https://datasheet.lcsc.com/lcsc/1234.pdf",
+      "paramVOList": [
+        {"paramNameEn": "Supply Voltage", "paramValueEn": "4.5V~16V"}
+      ],
+      "productPriceList": [
+        {"startNumber": 1, "productPrice": 0.12, "currency": "USD"},
+        {"startNumber": 100, "productPrice": 0.08, "currency": "USD"}
+      ]
+    }
+  }
+}
