@@ -144,7 +144,7 @@ class LcscService:
             order_multiple=pick(detail, "orderMultiple", "multiple"),
             basic_extended=pick(detail, "productArrange", "basicExtended", "attribute"),
             page_url=pick(detail, "url", "productUrl") or f"https://www.lcsc.com/product-detail/{lcsc_id}.html",
-            datasheet_url=pick(detail, "datasheetUrl", "pdfUrl", "productIntroEn"),
+            datasheet_url=pick(detail, "datasheetUrl", "pdfUrl"),
             source_url=source_url,
             fetched_at=utc_now_iso(),
         ).model_dump()
