@@ -70,6 +70,8 @@ class LcscClient:
                     raise LcscPermanentError("Access blocked by upstream (possible anti-bot protection)")
                 if response.status_code in {429, 500, 502, 503, 504}:
                     raise LcscApiError(f"Upstream temporary failure ({response.status_code})")
+                if 400 <= response.status_code < 500:
+                    raise LcscPermanentError(f"Upstream client error ({response.status_code})")
                 response.raise_for_status()
                 return response
             except LcscPermanentError:

@@ -159,7 +159,7 @@ class LcscService:
         sha256: str
         size_bytes: int
         cached_meta = None
-        if pdf_path.exists() and meta_path.exists():
+        if meta_path.exists():
             cached_meta = json.loads(meta_path.read_text(encoding="utf-8"))
 
         if (not pdf_path.exists()) or (not cached_meta) or (cached_meta.get("source_url") != source_url):
