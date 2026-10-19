@@ -35,6 +35,9 @@ class LcscService:
     def _text_cache_path(self, lcsc_id: str) -> Path:
         return self.settings.cache_dir / "text" / f"{lcsc_id}.json"
 
+    def _pdf_meta_path(self, lcsc_id: str) -> Path:
+        return self.settings.cache_dir / "pdf" / f"{lcsc_id}.meta.json"
+
     def _load_text_cache(self, lcsc_id: str) -> dict[int, str]:
         path = self._text_cache_path(lcsc_id)
         if not path.exists():
@@ -152,21 +155,34 @@ class LcscService:
 
         pdf_path = self.settings.cache_dir / "pdf" / f"{lcsc_id}.pdf"
         source_url = str(datasheet_url)
+        meta_path = self._pdf_meta_path(lcsc_id)
         sha256: str
         size_bytes: int
+        cached_meta = None
+        if pdf_path.exists() and meta_path.exists():
+            cached_meta = json.loads(meta_path.read_text(encoding="utf-8"))
 
-        if not pdf_path.exists():
+        if (not pdf_path.exists()) or (not cached_meta) or (cached_meta.get("source_url") != source_url):
             async with LcscClient(self.settings) as client:
                 sha256, size_bytes = await client.download_pdf(
                     lcsc_id=lcsc_id, datasheet_url=str(datasheet_url), destination=pdf_path
                 )
+            meta_path.parent.mkdir(parents=True, exist_ok=True)
+            meta_path.write_text(
+                json.dumps({"source_url": source_url, "sha256": sha256, "size_bytes": size_bytes}, ensure_ascii=False, indent=2),
+                encoding="utf-8",
+            )
         else:
-            size_bytes = pdf_path.stat().st_size
-            hasher = hashlib.sha256()
-            with pdf_path.open("rb") as f:
-                for chunk in iter(lambda: f.read(8192), b""):
-                    hasher.update(chunk)
-            sha256 = hasher.hexdigest()
+            if cached_meta and cached_meta.get("sha256") and cached_meta.get("size_bytes") is not None:
+                sha256 = str(cached_meta["sha256"])
+                size_bytes = int(cached_meta["size_bytes"])
+            else:
+                size_bytes = pdf_path.stat().st_size
+                hasher = hashlib.sha256()
+                with pdf_path.open("rb") as f:
+                    for chunk in iter(lambda: f.read(8192), b""):
+                        hasher.update(chunk)
+                sha256 = hasher.hexdigest()
 
         page_count = None
         try:
