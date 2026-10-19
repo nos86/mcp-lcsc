@@ -7,7 +7,17 @@ import urllib.parse
 from pathlib import Path
 
 from .cache import load_json_if_fresh, save_json
-from .client import LcscApiError, LcscClient, LcscPermanentError, first_dict, first_list, normalize_tiers, pick, utc_now_iso
+from .client import (
+    LcscApiError,
+    LcscClient,
+    LcscPermanentError,
+    first_dict,
+    first_list,
+    normalize_tiers,
+    parse_netscape_cookie_file,
+    pick,
+    utc_now_iso,
+)
 from .config import Settings
 from .models import (
     ComponentResult,
