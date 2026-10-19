@@ -106,6 +106,29 @@ async def test_search_components_nested_items_fallback(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_search_components_403_reports_search_blocked(tmp_path, monkeypatch):
+    class BlockedStubClient(StubClient):
+        async def search(self, query: str, limit: int, in_stock_only: bool, basic_only: bool):
+            raise LcscApiError("search_blocked: LCSC blocked automatic search requests (Akamai access denied)")
+
+    settings = Settings(
+        cache_dir=tmp_path,
+        preferred_currency="USD",
+        enable_playwright_fallback=False,
+        requests_per_second=100,
+        market_cache_ttl_seconds=600,
+        max_pdf_size_bytes=50 * 1024 * 1024,
+        user_agent="test-agent",
+    )
+    from lcsc_mcp import service as svc_module
+
+    monkeypatch.setattr(svc_module, "LcscClient", BlockedStubClient)
+    service = LcscService(settings)
+    with pytest.raises(LcscApiError, match="search_blocked"):
+        await service.search_components("NE555")
+
+
+@pytest.mark.asyncio
 async def test_get_component(service):
     result = await service.get_component("C2040")
 
