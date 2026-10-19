@@ -114,6 +114,8 @@ class LcscClient:
         destination.write_bytes(content)
         return hashlib.sha256(content).hexdigest(), len(content)
 
+
+
 def utc_now_iso() -> str:
     return datetime.now(UTC).isoformat()
 

@@ -161,9 +161,12 @@ class LcscService:
                     lcsc_id=lcsc_id, datasheet_url=str(datasheet_url), destination=pdf_path
                 )
         else:
-            content = pdf_path.read_bytes()
-            sha256 = hashlib.sha256(content).hexdigest()
-            size_bytes = len(content)
+            size_bytes = pdf_path.stat().st_size
+            hasher = hashlib.sha256()
+            with pdf_path.open("rb") as f:
+                for chunk in iter(lambda: f.read(8192), b""):
+                    hasher.update(chunk)
+            sha256 = hasher.hexdigest()
 
         page_count = None
         try:
