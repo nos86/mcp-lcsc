@@ -20,6 +20,35 @@ class LcscPermanentError(LcscApiError):
     pass
 
 
+def parse_netscape_cookie_file(path: str | Path) -> list[dict]:
+    cookies: list[dict] = []
+    cookie_path = Path(path).expanduser()
+    if not cookie_path.exists():
+        return cookies
+    try:
+        for raw_line in cookie_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split("\t")
+            if len(parts) < 7:
+                continue
+            domain, _, path_value, secure_flag, expires, name, value = parts[:7]
+            cookies.append(
+                {
+                    "domain": domain,
+                    "path": path_value or "/",
+                    "name": name,
+                    "value": value,
+                    "expires": int(float(expires)) if expires and expires != "0" else 0,
+                    "secure": secure_flag.lower() == "true",
+                }
+            )
+    except Exception:
+        return []
+    return cookies
+
+
 class LcscClient:
     # NOTE: endpoints below are documented assumptions; may require updates if LCSC changes.
     search_endpoint = "https://wmsc.lcsc.com/ftps/wm/search/global"
@@ -30,11 +59,26 @@ class LcscClient:
         self._client = client
         self._last_request_at = 0.0
 
+    def _cookie_jar(self) -> httpx.Cookies | None:
+        cookie_file = getattr(self.settings, "cookie_file", None)
+        if not cookie_file:
+            return None
+        jar = httpx.Cookies()
+        for cookie in parse_netscape_cookie_file(cookie_file):
+            jar.set(
+                cookie["name"],
+                cookie["value"],
+                domain=cookie["domain"],
+                path=cookie["path"],
+            )
+        return jar if jar else None
+
     async def __aenter__(self) -> "LcscClient":
         if self._client is None:
             self._client = httpx.AsyncClient(
                 timeout=20,
                 headers={"User-Agent": self.settings.user_agent, "Accept": "application/json, text/plain, */*"},
+                cookies=self._cookie_jar(),
             )
         return self
 
@@ -67,7 +111,7 @@ class LcscClient:
                     raise LcscPermanentError("Component not found")
                 if response.status_code == 403:
                     body = response.text[:200].strip()
-                    if "Access Denied" in body or "Access Denied" in (response.headers.get("server") or ""):
+                    if "Access Denied" in body:
                         raise LcscPermanentError("search_blocked: LCSC blocked automatic search requests (Akamai access denied)")
                     raise LcscPermanentError("Access blocked by upstream (possible anti-bot protection)")
                 if response.status_code in {429, 500, 502, 503, 504}:

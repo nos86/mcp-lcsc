@@ -27,7 +27,11 @@ class StubClient:
         return payload, "https://wmsc.lcsc.com/ftps/wm/search/global?keyword=NE555"
 
     async def component(self, lcsc_id: str):
-        payload = json.loads((Path(__file__).parent / "fixtures" / "component_response.json").read_text(encoding="utf-8"))
+        fixture_dir = Path(__file__).parent / "fixtures"
+        if lcsc_id == "C2040":
+            payload = json.loads((fixture_dir / "live" / "detail_C2040.json").read_text(encoding="utf-8"))
+        else:
+            payload = json.loads((fixture_dir / "component_response.json").read_text(encoding="utf-8"))
         return payload, f"https://wmsc.lcsc.com/ftps/wm/product/detail?productCode={lcsc_id}"
 
 
@@ -106,10 +110,13 @@ async def test_get_component(service):
     result = await service.get_component("C2040")
 
     assert result["lcsc_id"] == "C2040"
-    assert result["manufacturer"] == "Texas Instruments"
-    assert result["parameters"]["Supply Voltage"] == "4.5V~16V"
-    assert len(result["price_tiers"]) == 2
-    assert result["datasheet_url"] == "https://datasheet.lcsc.com/lcsc/1234.pdf"
+    assert result["manufacturer"] == "Raspberry Pi"
+    assert result["description"] == "A microcontroller"
+    assert result["packaging"] == "Reel x 3400"
+    assert result["order_multiple"] == 1
+    assert result["max_order_qty"] is None
+    assert result["parameters"]["Voltage - Supply"] == "1.8V~3.3V"
+    assert result["datasheet_url"] == "https://datasheet.lcsc.com/datasheet/pdf/3dad1d8f987a4e00bfc677055df1f959.pdf?productCode=C2040"
 
 
 @pytest.mark.asyncio

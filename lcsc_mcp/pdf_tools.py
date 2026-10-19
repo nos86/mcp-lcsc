@@ -74,6 +74,7 @@ def read_pdf_pages(pdf_path: Path, pages: list[int]) -> tuple[dict[int, str], in
                     page_map[page_key] = (page_map.get(page_key, "") + "\n" + text).strip()
                 for page_no in pages:
                     if 1 <= page_no <= page_count:
+                        # pymupdf4llm page_chunks output is zero-based in the current library version.
                         md = page_map.get(page_no - 1)
                         if isinstance(md, str) and md.strip():
                             page_text[page_no] = md.strip()
@@ -86,7 +87,8 @@ def read_pdf_pages(pdf_path: Path, pages: list[int]) -> tuple[dict[int, str], in
             with pdfplumber.open(str(pdf_path)) as pdf:
                 for page_no in empty_pages:
                     text = pdf.pages[page_no - 1].extract_text() or ""
-                    page_text[page_no] = text.strip()
+                    if text.strip():
+                        page_text[page_no] = text.strip()
         except Exception:
             pass
 

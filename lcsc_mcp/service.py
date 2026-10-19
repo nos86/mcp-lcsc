@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import urllib.parse
 from pathlib import Path
 
 from .cache import load_json_if_fresh, save_json
@@ -57,6 +58,80 @@ class LcscService:
         payload = {str(k): v for k, v in pages.items()}
         path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
+    async def _playwright_search_fallback(
+        self, query: str, limit: int, in_stock_only: bool, basic_only: bool
+    ) -> dict | None:
+        if not self.settings.enable_playwright_fallback:
+            return None
+        try:
+            from playwright.async_api import async_playwright
+        except Exception:
+            return None
+
+        query_text = query.strip()
+        if not query_text:
+            return None
+
+        encoded = urllib.parse.quote(query_text)
+        url = f"https://www.lcsc.com/search?keyword={encoded}"
+        try:
+            async with async_playwright() as pw:
+                browser = await pw.chromium.launch(headless=True)
+                try:
+                    context = await browser.new_context()
+                    if self.settings.cookie_file:
+                        cookie_path = Path(self.settings.cookie_file).expanduser()
+                        if cookie_path.exists():
+                            try:
+                                cookies = []
+                                for cookie in parse_netscape_cookie_file(cookie_path):
+                                    cookies.append({
+                                        "domain": cookie["domain"],
+                                        "path": cookie["path"],
+                                        "name": cookie["name"],
+                                        "value": cookie["value"],
+                                        "expires": cookie["expires"],
+                                        "httpOnly": False,
+                                        "secure": cookie["secure"],
+                                    })
+                                if cookies:
+                                    await context.add_cookies(cookies)
+                            except Exception:
+                                pass
+                    page = await context.new_page()
+                    await page.goto(url, wait_until="domcontentloaded", timeout=20000)
+                    await page.wait_for_timeout(1000)
+                    anchors = await page.locator("a[href*='/product-detail/']").all()
+                    items: list[dict] = []
+                    for anchor in anchors[:limit]:
+                        href = await anchor.get_attribute("href")
+                        text = (await anchor.inner_text()).strip()
+                        if not href:
+                            continue
+                        match = re.search(r"/product-detail/([^/.]+)", href)
+                        lcsc_id = match.group(1) if match else None
+                        if not lcsc_id:
+                            continue
+                        items.append(
+                            {
+                                "lcsc_id": lcsc_id,
+                                "mpn": text or None,
+                                "manufacturer": None,
+                                "description": text or None,
+                                "package": None,
+                                "first_tier_unit_price": None,
+                                "stock": None,
+                                "page_url": href,
+                            }
+                        )
+                    if items:
+                        return {"items": items, "source_url": page.url, "fetched_at": utc_now_iso()}
+                finally:
+                    await browser.close()
+        except Exception:
+            return None
+        return None
+
     async def search_components(self, query: str, limit: int = 10, in_stock_only: bool = False, basic_only: bool = False) -> dict:
         key = f"{query}|{limit}|{in_stock_only}|{basic_only}"
         cache_path = self._market_cache_path("search", key)
@@ -82,8 +157,14 @@ class LcscService:
         try:
             async with LcscClient(self.settings) as client:
                 payload, source_url = await client.search(query=query, limit=limit, in_stock_only=in_stock_only, basic_only=basic_only)
-        except LcscApiError as exc:
+        except (LcscApiError, LcscPermanentError) as exc:
             if "Access Denied" in str(exc) or "search_blocked" in str(exc):
+                if self.settings.enable_playwright_fallback:
+                    fallback = await self._playwright_search_fallback(query, limit, in_stock_only, basic_only)
+                    if fallback is not None:
+                        save_json(cache_path, fallback)
+                        return fallback
+                    raise LcscApiError("search_blocked: LCSC blocked automatic search requests (Akamai access denied); the browser-backed fallback was attempted but could not access results") from exc
                 raise LcscApiError("search_blocked: LCSC blocked automatic search requests (Akamai access denied); use a direct lcsc_id or enable a browser-backed fallback") from exc
             raise
         data = first_dict(payload, "result", "data")
@@ -155,7 +236,9 @@ class LcscService:
 
         description = pick(detail, "productDescEn", "description", "title")
         if not description:
-            description = pick(detail, "productNameEn", "productKeyAttributes")
+            description = pick(detail, "productNameEn")
+        if not description:
+            description = pick(detail, "productKeyAttributes")
         if not description:
             description = None
 
@@ -186,6 +269,7 @@ class LcscService:
             moq=pick(detail, "moq", "minBuyNumber", "minQty"),
             order_multiple=pick(detail, "split", "orderMultiple", "multiple"),
             max_order_qty=max_order_qty,
+            # The live LCSC detail endpoint does not provide a reliable basic/extended flag.
             basic_extended=None,
             page_url=pick(detail, "url", "productUrl") or f"https://www.lcsc.com/product-detail/{lcsc_id}.html",
             datasheet_url=pick(detail, "datasheetUrl", "pdfUrl"),
@@ -275,12 +359,13 @@ class LcscService:
         empty_pages = [page for page in selected_pages if not (selected_text.get(page) or "").strip()]
 
         markdown, truncated, resume_from, needs_ocr = render_markdown(selected_text, max_chars=max_chars)
+        threshold = max(0, len(selected_pages) // 2)
         result = ReadDatasheetResult(
             lcsc_id=lcsc_id,
             markdown=markdown,
             truncated=truncated,
             resume_from_page=resume_from,
-            needs_ocr=needs_ocr or (len(empty_pages) > (len(selected_pages) / 2)),
+            needs_ocr=needs_ocr or (len(empty_pages) > threshold),
             empty_pages=empty_pages,
             source_url=download["source_url"],
             fetched_at=utc_now_iso(),
@@ -303,6 +388,7 @@ class LcscService:
         if page_count <= 0:
             _, page_count = read_pdf_pages(pdf_path, [1])
 
+        max_results = max(0, min(int(max_results or 25), 200))
         requested_pages = list(range(1, page_count + 1))
         if page_range:
             requested_pages = parse_pages(page_range, page_count)
@@ -316,23 +402,24 @@ class LcscService:
 
         page_subset = {page: cached.get(page, "") for page in requested_pages}
         matches, regex_mode = search_in_pages(page_subset, query=query, context_lines=context_lines)
+        ordered_matches = sorted(matches, key=lambda item: (int(item["page"]), str(item["context"])))
         deduped: list[dict] = []
         seen: set[tuple[int, str]] = set()
-        for match in matches:
+        for match in ordered_matches:
             key = (int(match["page"]), str(match["context"]))
             if key in seen:
                 continue
             seen.add(key)
             deduped.append(match)
-        deduped = deduped[: max(0, min(max_results, 200))]
-        truncated = len(matches) > len(deduped)
+        limited = deduped[:max_results]
+        truncated = len(deduped) > max_results
 
         return SearchDatasheetResult(
             lcsc_id=lcsc_id,
             query=query,
             regex=regex_mode,
-            matches=deduped,
-            total_matches=len(matches),
+            matches=limited,
+            total_matches=len(deduped),
             truncated=truncated,
             page_range=page_range,
             source_url=download["source_url"],
