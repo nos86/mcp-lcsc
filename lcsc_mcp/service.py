@@ -150,7 +150,7 @@ class LcscService:
         if not datasheet_url:
             raise LcscApiError(f"Datasheet URL not available for {lcsc_id}")
 
-        pdf_path = self.settings.cache_dir / f"{lcsc_id}.pdf"
+        pdf_path = self.settings.cache_dir / "pdf" / f"{lcsc_id}.pdf"
         source_url = str(datasheet_url)
         sha256: str
         size_bytes: int

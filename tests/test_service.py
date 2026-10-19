@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 
 import pytest
 
+from lcsc_mcp.client import LcscApiError
 from lcsc_mcp.config import Settings
 from lcsc_mcp.pdf_tools import parse_pages
 from lcsc_mcp.service import LcscService
@@ -73,7 +74,7 @@ async def test_get_component(service):
 
 @pytest.mark.asyncio
 async def test_get_component_rejects_invalid_id(service):
-    with pytest.raises(RuntimeError, match="Invalid lcsc_id format"):
+    with pytest.raises(LcscApiError, match="Invalid lcsc_id format"):
         await service.get_component("../etc/passwd")
 
 

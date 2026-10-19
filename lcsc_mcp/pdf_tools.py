@@ -3,6 +3,9 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+PAGE_HEADER_TEMPLATE = "## Pagina {page_no}"
+TRUNCATED_TEMPLATE = "[TRUNCATED: riprendi da pagina {resume_from}]"
+
 
 def parse_pages(pages: str, page_count: int) -> list[int]:
     selected: set[int] = set()
@@ -70,7 +73,7 @@ def render_markdown(page_text: dict[int, str], max_chars: int) -> tuple[str, boo
 
     for page_no in sorted(page_text):
         body = page_text[page_no]
-        chunks.append(f"## Pagina {page_no}\n\n{body}\n")
+        chunks.append(f"{PAGE_HEADER_TEMPLATE.format(page_no=page_no)}\n\n{body}\n")
 
     full_markdown = "\n".join(chunks).strip()
     needs_ocr = all(not (text or "").strip() for text in page_text.values())
@@ -82,7 +85,7 @@ def render_markdown(page_text: dict[int, str], max_chars: int) -> tuple[str, boo
     cut = full_markdown[:max_chars]
 
     for page_no in sorted(page_text):
-        marker = f"## Pagina {page_no}"
+        marker = PAGE_HEADER_TEMPLATE.format(page_no=page_no)
         idx = full_markdown.find(marker)
         if idx >= max_chars:
             resume_from = page_no
@@ -91,7 +94,7 @@ def render_markdown(page_text: dict[int, str], max_chars: int) -> tuple[str, boo
     if resume_from is None:
         resume_from = max(page_text.keys())
 
-    cut += f"\n\n[TRUNCATED: riprendi da pagina {resume_from}]"
+    cut += f"\n\n{TRUNCATED_TEMPLATE.format(resume_from=resume_from)}"
     return cut, truncated, resume_from, needs_ocr
 
 
