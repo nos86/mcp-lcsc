@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from pathlib import Path
 
 from .cache import load_json_if_fresh, save_json
@@ -24,6 +25,12 @@ class LcscService:
     def _market_cache_path(self, prefix: str, key: str) -> Path:
         digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
         return self.settings.cache_dir / "market" / f"{prefix}-{digest}.json"
+
+    @staticmethod
+    def _validate_lcsc_id(lcsc_id: str) -> str:
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", lcsc_id):
+            raise LcscApiError("Invalid lcsc_id format")
+        return lcsc_id
 
     def _text_cache_path(self, lcsc_id: str) -> Path:
         return self.settings.cache_dir / "text" / f"{lcsc_id}.json"
@@ -87,6 +94,7 @@ class LcscService:
         return result
 
     async def get_component(self, lcsc_id: str) -> dict:
+        lcsc_id = self._validate_lcsc_id(lcsc_id)
         cache_path = self._market_cache_path("component", lcsc_id)
         cached = load_json_if_fresh(cache_path, self.settings.market_cache_ttl_seconds)
         if cached:
@@ -127,7 +135,7 @@ class LcscService:
             order_multiple=pick(detail, "orderMultiple", "multiple"),
             basic_extended=pick(detail, "productArrange", "basicExtended", "attribute"),
             page_url=pick(detail, "url", "productUrl") or f"https://www.lcsc.com/product-detail/{lcsc_id}.html",
-            datasheet_url=pick(detail, "productIntroEn", "datasheetUrl", "pdfUrl"),
+            datasheet_url=pick(detail, "datasheetUrl", "pdfUrl", "productIntroEn"),
             source_url=source_url,
             fetched_at=utc_now_iso(),
         ).model_dump()
@@ -136,6 +144,7 @@ class LcscService:
         return result
 
     async def download_datasheet(self, lcsc_id: str) -> dict:
+        lcsc_id = self._validate_lcsc_id(lcsc_id)
         component = await self.get_component(lcsc_id)
         datasheet_url = component.get("datasheet_url")
         if not datasheet_url:
@@ -172,6 +181,7 @@ class LcscService:
         ).model_dump()
 
     async def read_datasheet(self, lcsc_id: str, pages: str = "1-5", max_chars: int = 30000) -> dict:
+        lcsc_id = self._validate_lcsc_id(lcsc_id)
         download = await self.download_datasheet(lcsc_id)
         pdf_path = Path(download["path"])
 
@@ -201,6 +211,7 @@ class LcscService:
         ).model_dump()
 
     async def search_datasheet(self, lcsc_id: str, query: str, context_lines: int = 3) -> dict:
+        lcsc_id = self._validate_lcsc_id(lcsc_id)
         download = await self.download_datasheet(lcsc_id)
         pdf_path = Path(download["path"])
 

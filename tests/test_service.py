@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pytest
 
@@ -52,7 +53,9 @@ async def test_search_components(service):
 
     assert result["items"][0]["lcsc_id"] == "C2040"
     assert result["items"][0]["first_tier_unit_price"] == 0.12
-    assert result["source_url"].startswith("https://wmsc.lcsc.com")
+    parsed = urlparse(result["source_url"])
+    assert parsed.scheme == "https"
+    assert parsed.hostname == "wmsc.lcsc.com"
     assert "fetched_at" in result
 
 
@@ -65,6 +68,12 @@ async def test_get_component(service):
     assert result["parameters"]["Supply Voltage"] == "4.5V~16V"
     assert len(result["price_tiers"]) == 2
     assert result["datasheet_url"] == "https://datasheet.lcsc.com/lcsc/1234.pdf"
+
+
+@pytest.mark.asyncio
+async def test_get_component_rejects_invalid_id(service):
+    with pytest.raises(RuntimeError, match="Invalid lcsc_id format"):
+        await service.get_component("../etc/passwd")
 
 
 @pytest.mark.asyncio

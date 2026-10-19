@@ -17,6 +17,10 @@ class LcscApiError(RuntimeError):
     pass
 
 
+class LcscPermanentError(LcscApiError):
+    pass
+
+
 class LcscClient:
     # NOTE: endpoints below are documented assumptions; may require updates if LCSC changes.
     search_endpoint = "https://wmsc.lcsc.com/ftps/wm/search/global"
@@ -61,11 +65,15 @@ class LcscClient:
                 await self._throttle()
                 response = await self.client.request(method, url, **kwargs)
                 if response.status_code == 404:
-                    raise LcscApiError("Component not found")
+                    raise LcscPermanentError("Component not found")
+                if response.status_code == 403:
+                    raise LcscPermanentError("Access blocked by upstream (possible anti-bot protection)")
                 if response.status_code in {429, 500, 502, 503, 504}:
                     raise LcscApiError(f"Upstream temporary failure ({response.status_code})")
                 response.raise_for_status()
                 return response
+            except LcscPermanentError:
+                raise
             except (httpx.RequestError, LcscApiError) as exc:
                 last_error = exc
                 await asyncio.sleep(backoff)
