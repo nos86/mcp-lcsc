@@ -173,6 +173,7 @@ class LcscService:
                 sha256, size_bytes = await client.download_pdf(
                     lcsc_id=lcsc_id, datasheet_url=str(datasheet_url), destination=pdf_path
                 )
+            self._text_cache_path(lcsc_id).unlink(missing_ok=True)
             meta_path.parent.mkdir(parents=True, exist_ok=True)
             meta_path.write_text(
                 json.dumps({"source_url": source_url, "sha256": sha256, "size_bytes": size_bytes}, ensure_ascii=False, indent=2),
