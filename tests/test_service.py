@@ -8,7 +8,7 @@ import pytest
 
 from lcsc_mcp.client import LcscApiError
 from lcsc_mcp.config import Settings
-from lcsc_mcp.pdf_tools import parse_pages
+from lcsc_mcp.pdf_tools import PAGE_HEADER_TEMPLATE, parse_pages
 from lcsc_mcp.service import LcscService
 
 
@@ -104,7 +104,7 @@ async def test_read_datasheet_truncation_and_ocr_flag(service, monkeypatch):
 
     assert result["truncated"] is True
     assert result["resume_from_page"] in {1, 2}
-    assert "## Pagina 1" in result["markdown"]
+    assert PAGE_HEADER_TEMPLATE.format(page_no=1) in result["markdown"]
 
 
 @pytest.mark.asyncio
