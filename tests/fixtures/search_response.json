@@ -1,0 +1,15 @@
+{
+  "result": {
+    "productSearchResultVO": [
+      {
+        "productCode": "C2040",
+        "productModel": "NE555DR",
+        "brandNameEn": "Texas Instruments",
+        "productDescEn": "Precision Timers",
+        "encapStandard": "SOIC-8",
+        "stockNumber": 15230,
+        "priceList": [{"startNumber": 1, "productPrice": 0.12, "currency": "USD"}]
+      }
+    ]
+  }
+}
