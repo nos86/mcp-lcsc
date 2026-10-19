@@ -12,13 +12,19 @@ def parse_pages(pages: str, page_count: int) -> list[int]:
             continue
         if "-" in token:
             start_s, end_s = token.split("-", 1)
-            start = int(start_s)
-            end = int(end_s)
+            try:
+                start = int(start_s)
+                end = int(end_s)
+            except ValueError as exc:
+                raise ValueError(f"Invalid page token: {token}") from exc
             for page in range(start, end + 1):
                 if 1 <= page <= page_count:
                     selected.add(page)
         else:
-            page = int(token)
+            try:
+                page = int(token)
+            except ValueError as exc:
+                raise ValueError(f"Invalid page token: {token}") from exc
             if 1 <= page <= page_count:
                 selected.add(page)
     if not selected:

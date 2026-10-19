@@ -7,6 +7,7 @@ from urllib.parse import urlparse
 import pytest
 
 from lcsc_mcp.config import Settings
+from lcsc_mcp.pdf_tools import parse_pages
 from lcsc_mcp.service import LcscService
 
 
@@ -131,3 +132,8 @@ async def test_search_datasheet_regex(service, monkeypatch):
     assert result["regex"] is True
     assert result["matches"]
     assert result["matches"][0]["page"] == 1
+
+
+def test_parse_pages_invalid_token():
+    with pytest.raises(ValueError, match="Invalid page token"):
+        parse_pages("1-abc", page_count=10)

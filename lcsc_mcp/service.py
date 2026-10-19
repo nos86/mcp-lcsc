@@ -152,14 +152,18 @@ class LcscService:
 
         pdf_path = self.settings.cache_dir / f"{lcsc_id}.pdf"
         source_url = str(datasheet_url)
+        sha256: str
+        size_bytes: int
 
         if not pdf_path.exists():
             async with LcscClient(self.settings) as client:
-                await client.download_pdf(lcsc_id=lcsc_id, datasheet_url=str(datasheet_url), destination=pdf_path)
-
-        content = pdf_path.read_bytes()
-        sha256 = hashlib.sha256(content).hexdigest()
-        size_bytes = len(content)
+                sha256, size_bytes = await client.download_pdf(
+                    lcsc_id=lcsc_id, datasheet_url=str(datasheet_url), destination=pdf_path
+                )
+        else:
+            content = pdf_path.read_bytes()
+            sha256 = hashlib.sha256(content).hexdigest()
+            size_bytes = len(content)
 
         page_count = None
         try:
