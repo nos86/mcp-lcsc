@@ -3,8 +3,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-PAGE_HEADER_TEMPLATE = "## Pagina {page_no}"
-TRUNCATED_TEMPLATE = "[TRUNCATED: riprendi da pagina {resume_from}]"
+PAGE_HEADER_TEMPLATE = "## Page {page_no}"
+TRUNCATED_TEMPLATE = "[TRUNCATED: resume from page {resume_from}]"
 
 
 def parse_pages(pages: str, page_count: int) -> list[int]:
@@ -36,7 +36,7 @@ def parse_pages(pages: str, page_count: int) -> list[int]:
 
 
 def read_pdf_pages(pdf_path: Path, pages: list[int]) -> tuple[dict[int, str], int]:
-    page_text: dict[int, str] = {}
+    page_text: dict[int, str] = {page_no: "" for page_no in pages}
     page_count = 0
 
     try:
@@ -46,20 +46,47 @@ def read_pdf_pages(pdf_path: Path, pages: list[int]) -> tuple[dict[int, str], in
 
     with pdfplumber.open(str(pdf_path)) as pdf:
         page_count = len(pdf.pages)
-        for page_no in pages:
-            text = ""
-            if 1 <= page_no <= page_count:
-                text = pdf.pages[page_no - 1].extract_text() or ""
-            page_text[page_no] = text.strip()
 
-    if any(page_text.values()):
+    try:
+        import pymupdf4llm
+
+        requested_zero_based = sorted({page_no - 1 for page_no in pages if 1 <= page_no <= page_count})
+        if requested_zero_based:
+            markdown_by_page = pymupdf4llm.to_markdown(str(pdf_path), pages=requested_zero_based, page_chunks=True)
+            if isinstance(markdown_by_page, list):
+                page_map: dict[int, str] = {}
+                for chunk in markdown_by_page:
+                    if not isinstance(chunk, dict):
+                        continue
+                    metadata = chunk.get("metadata")
+                    if not isinstance(metadata, dict):
+                        continue
+                    page_index = metadata.get("page")
+                    if page_index is None:
+                        continue
+                    try:
+                        page_key = int(page_index)
+                    except (TypeError, ValueError):
+                        continue
+                    text = chunk.get("text") or chunk.get("markdown") or ""
+                    if not isinstance(text, str):
+                        continue
+                    page_map[page_key] = (page_map.get(page_key, "") + "\n" + text).strip()
+                for page_no in pages:
+                    if 1 <= page_no <= page_count:
+                        md = page_map.get(page_no - 1)
+                        if isinstance(md, str) and md.strip():
+                            page_text[page_no] = md.strip()
+    except Exception:
+        pass
+
+    empty_pages = [page_no for page_no in pages if 1 <= page_no <= page_count and not (page_text.get(page_no) or "").strip()]
+    if empty_pages:
         try:
-            import pymupdf4llm
-
-            for page_no in pages:
-                md = pymupdf4llm.to_markdown(str(pdf_path), pages=[page_no - 1])
-                if isinstance(md, str) and md.strip():
-                    page_text[page_no] = md.strip()
+            with pdfplumber.open(str(pdf_path)) as pdf:
+                for page_no in empty_pages:
+                    text = pdf.pages[page_no - 1].extract_text() or ""
+                    page_text[page_no] = text.strip()
         except Exception:
             pass
 

@@ -66,6 +66,9 @@ class LcscClient:
                 if response.status_code == 404:
                     raise LcscPermanentError("Component not found")
                 if response.status_code == 403:
+                    body = response.text[:200].strip()
+                    if "Access Denied" in body or "Access Denied" in (response.headers.get("server") or ""):
+                        raise LcscPermanentError("search_blocked: LCSC blocked automatic search requests (Akamai access denied)")
                     raise LcscPermanentError("Access blocked by upstream (possible anti-bot protection)")
                 if response.status_code in {429, 500, 502, 503, 504}:
                     raise LcscApiError(f"Upstream temporary failure ({response.status_code})")

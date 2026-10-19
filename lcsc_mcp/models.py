@@ -33,11 +33,13 @@ class ComponentResult(BaseModel):
     category: str | None
     description: str | None
     package: str | None
+    packaging: str | None
     parameters: dict[str, str | None] = Field(default_factory=dict)
     price_tiers: list[PriceTier] = Field(default_factory=list)
     stock: int | None
     moq: int | None
     order_multiple: int | None
+    max_order_qty: int | None
     basic_extended: str | None
     page_url: str | None
     datasheet_url: str | None
@@ -61,6 +63,7 @@ class ReadDatasheetResult(BaseModel):
     truncated: bool
     resume_from_page: int | None
     needs_ocr: bool
+    empty_pages: list[int] = Field(default_factory=list)
     source_url: str
     fetched_at: str
 
@@ -75,6 +78,9 @@ class SearchDatasheetResult(BaseModel):
     query: str
     regex: bool
     matches: list[DatasheetHit]
+    total_matches: int
+    truncated: bool
+    page_range: str | None = None
     source_url: str
     fetched_at: str
 

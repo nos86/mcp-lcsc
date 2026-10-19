@@ -14,6 +14,7 @@ class Settings:
     market_cache_ttl_seconds: int
     max_pdf_size_bytes: int
     user_agent: str
+    cookie_file: str | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -27,6 +28,7 @@ class Settings:
             market_cache_ttl_seconds=int(os.getenv("LCSC_MCP_MARKET_TTL_SECONDS", "600")),
             max_pdf_size_bytes=int(os.getenv("LCSC_MCP_MAX_PDF_SIZE_BYTES", str(50 * 1024 * 1024))),
             user_agent=os.getenv("LCSC_MCP_USER_AGENT", "lcsc-mcp/0.1 (+https://github.com/nos86/mcp-lcsc)"),
+            cookie_file=os.getenv("LCSC_MCP_COOKIE_FILE"),
         )
 
 

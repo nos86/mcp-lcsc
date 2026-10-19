@@ -64,8 +64,28 @@ class LcscService:
         if cached:
             return cached
 
-        async with LcscClient(self.settings) as client:
-            payload, source_url = await client.search(query=query, limit=limit, in_stock_only=in_stock_only, basic_only=basic_only)
+        if re.fullmatch(r"C\d+", query.strip()):
+            component = await self.get_component(query.strip())
+            result = {"items": [{
+                "lcsc_id": component.get("lcsc_id"),
+                "mpn": component.get("mpn"),
+                "manufacturer": component.get("manufacturer"),
+                "description": component.get("description"),
+                "package": component.get("package"),
+                "first_tier_unit_price": component["price_tiers"][0]["price"] if component.get("price_tiers") else None,
+                "stock": component.get("stock"),
+                "page_url": component.get("page_url"),
+            }], "source_url": component.get("source_url"), "fetched_at": component.get("fetched_at")}
+            save_json(cache_path, result)
+            return result
+
+        try:
+            async with LcscClient(self.settings) as client:
+                payload, source_url = await client.search(query=query, limit=limit, in_stock_only=in_stock_only, basic_only=basic_only)
+        except LcscApiError as exc:
+            if "Access Denied" in str(exc) or "search_blocked" in str(exc):
+                raise LcscApiError("search_blocked: LCSC blocked automatic search requests (Akamai access denied); use a direct lcsc_id or enable a browser-backed fallback") from exc
+            raise
         data = first_dict(payload, "result", "data")
         items = first_list(data, "productSearchResultVO", "list", "items", "rows")
         if not items and isinstance(payload.get("result"), dict):
@@ -81,12 +101,15 @@ class LcscService:
                 continue
             tiers = normalize_tiers(first_list(raw, "priceList", "productPriceList", "ladderPriceList"), self.settings.preferred_currency)
             first_tier = tiers[0]["price"] if tiers else None
+            description = pick(raw, "productDescEn", "description", "title")
+            if not description:
+                description = pick(raw, "productNameEn", "productKeyAttributes")
             parsed_items.append(
                 {
                     "lcsc_id": pick(raw, "productCode", "componentCode", "lcscPart", "partNumber"),
                     "mpn": pick(raw, "productModel", "mpn", "model"),
                     "manufacturer": pick(raw, "brandNameEn", "manufacturer", "brandName"),
-                    "description": pick(raw, "productDescEn", "description", "title"),
+                    "description": description,
                     "package": pick(raw, "encapStandard", "package", "pkg"),
                     "first_tier_unit_price": first_tier,
                     "stock": pick(raw, "stockNumber", "stock", "productNumber"),
@@ -130,19 +153,40 @@ class LcscService:
 
         tiers = normalize_tiers(first_list(detail, "productPriceList", "priceList", "ladderPriceList"), self.settings.preferred_currency)
 
+        description = pick(detail, "productDescEn", "description", "title")
+        if not description:
+            description = pick(detail, "productNameEn", "productKeyAttributes")
+        if not description:
+            description = None
+
+        packaging_parts: list[str] = []
+        min_packet_unit = pick(detail, "minPacketUnit")
+        min_packet_number = pick(detail, "minPacketNumber")
+        if min_packet_unit:
+            packaging_parts.append(str(min_packet_unit))
+        if min_packet_number not in (None, ""):
+            packaging_parts.append(f"x {min_packet_number}")
+        packaging = " ".join(packaging_parts) if packaging_parts else None
+
+        max_order_qty = pick(detail, "maxBuyNumber")
+        if isinstance(max_order_qty, (int, float)) and max_order_qty == -1:
+            max_order_qty = None
+
         result = ComponentResult(
             lcsc_id=pick(detail, "productCode", "componentCode", "lcscPart") or lcsc_id,
             mpn=pick(detail, "productModel", "mpn", "model"),
             manufacturer=pick(detail, "brandNameEn", "brandName", "manufacturer"),
             category=pick(detail, "parentCatalogName", "catalogName", "categoryName"),
-            description=pick(detail, "productDescEn", "description", "title"),
+            description=description,
             package=pick(detail, "encapStandard", "package", "pkg"),
+            packaging=packaging,
             parameters=parameters,
             price_tiers=tiers,
             stock=pick(detail, "stockNumber", "stock", "productNumber"),
             moq=pick(detail, "moq", "minBuyNumber", "minQty"),
-            order_multiple=pick(detail, "orderMultiple", "multiple"),
-            basic_extended=pick(detail, "productArrange", "basicExtended", "attribute"),
+            order_multiple=pick(detail, "split", "orderMultiple", "multiple"),
+            max_order_qty=max_order_qty,
+            basic_extended=None,
             page_url=pick(detail, "url", "productUrl") or f"https://www.lcsc.com/product-detail/{lcsc_id}.html",
             datasheet_url=pick(detail, "datasheetUrl", "pdfUrl"),
             source_url=source_url,
@@ -228,19 +272,29 @@ class LcscService:
             cached.update(page_text)
             self._save_text_cache(lcsc_id, cached)
         selected_text = {page: cached.get(page, "") for page in selected_pages}
+        empty_pages = [page for page in selected_pages if not (selected_text.get(page) or "").strip()]
 
         markdown, truncated, resume_from, needs_ocr = render_markdown(selected_text, max_chars=max_chars)
-        return ReadDatasheetResult(
+        result = ReadDatasheetResult(
             lcsc_id=lcsc_id,
             markdown=markdown,
             truncated=truncated,
             resume_from_page=resume_from,
-            needs_ocr=needs_ocr,
+            needs_ocr=needs_ocr or (len(empty_pages) > (len(selected_pages) / 2)),
+            empty_pages=empty_pages,
             source_url=download["source_url"],
             fetched_at=utc_now_iso(),
-        ).model_dump()
+        )
+        return result.model_dump()
 
-    async def search_datasheet(self, lcsc_id: str, query: str, context_lines: int = 3) -> dict:
+    async def search_datasheet(
+        self,
+        lcsc_id: str,
+        query: str,
+        context_lines: int = 3,
+        max_results: int = 25,
+        page_range: str | None = None,
+    ) -> dict:
         lcsc_id = self._validate_lcsc_id(lcsc_id)
         download = await self.download_datasheet(lcsc_id)
         pdf_path = Path(download["path"])
@@ -249,20 +303,38 @@ class LcscService:
         if page_count <= 0:
             _, page_count = read_pdf_pages(pdf_path, [1])
 
-        all_pages = list(range(1, page_count + 1))
+        requested_pages = list(range(1, page_count + 1))
+        if page_range:
+            requested_pages = parse_pages(page_range, page_count)
+
         cached = self._load_text_cache(lcsc_id)
-        missing = [page for page in all_pages if page not in cached]
+        missing = [page for page in requested_pages if page not in cached]
         if missing:
             page_text, _ = read_pdf_pages(pdf_path, missing)
             cached.update(page_text)
             self._save_text_cache(lcsc_id, cached)
-        matches, regex_mode = search_in_pages(cached, query=query, context_lines=context_lines)
+
+        page_subset = {page: cached.get(page, "") for page in requested_pages}
+        matches, regex_mode = search_in_pages(page_subset, query=query, context_lines=context_lines)
+        deduped: list[dict] = []
+        seen: set[tuple[int, str]] = set()
+        for match in matches:
+            key = (int(match["page"]), str(match["context"]))
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(match)
+        deduped = deduped[: max(0, min(max_results, 200))]
+        truncated = len(matches) > len(deduped)
 
         return SearchDatasheetResult(
             lcsc_id=lcsc_id,
             query=query,
             regex=regex_mode,
-            matches=matches,
+            matches=deduped,
+            total_matches=len(matches),
+            truncated=truncated,
+            page_range=page_range,
             source_url=download["source_url"],
             fetched_at=utc_now_iso(),
         ).model_dump()
