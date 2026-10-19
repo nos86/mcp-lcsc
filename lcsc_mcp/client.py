@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -200,9 +199,3 @@ def normalize_tiers(raw_tiers: list, default_currency: str | None) -> list[dict]
         normalized.append({"qty": qty, "price": price, "currency": currency})
     return normalized
 
-
-def parse_json_object(payload: str) -> dict:
-    parsed = json.loads(payload)
-    if isinstance(parsed, dict):
-        return parsed
-    raise LcscApiError("Unexpected non-object JSON response")
