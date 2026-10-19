@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 from pydantic import BaseModel, Field
 
 
@@ -80,8 +78,3 @@ class SearchDatasheetResult(BaseModel):
     source_url: str
     fetched_at: str
 
-
-class CachedEnvelope(BaseModel):
-    fetched_at: str
-    source_url: str
-    payload: dict[str, Any]
