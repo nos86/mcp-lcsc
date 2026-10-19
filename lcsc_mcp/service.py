@@ -67,7 +67,13 @@ class LcscService:
         async with LcscClient(self.settings) as client:
             payload, source_url = await client.search(query=query, limit=limit, in_stock_only=in_stock_only, basic_only=basic_only)
         data = first_dict(payload, "result", "data")
-        items = first_list(data, "productSearchResultVO", "list", "items", "rows") or first_list(payload, "result", "data", "items")
+        items = first_list(data, "productSearchResultVO", "list", "items", "rows")
+        if not items and isinstance(payload.get("result"), dict):
+            nested_data = payload["result"].get("data")
+            if isinstance(nested_data, dict):
+                nested_items = nested_data.get("items")
+                if isinstance(nested_items, list):
+                    items = nested_items
 
         parsed_items: list[dict] = []
         for raw in items[:limit]:

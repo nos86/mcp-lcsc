@@ -104,17 +104,53 @@ class LcscClient:
             raise LcscApiError("Datasheet URL must use https")
         if (parsed.hostname or "").lower() not in KNOWN_PDF_HOSTS:
             raise LcscApiError("Datasheet URL host is not in allow-list")
+        backoff = 0.5
+        last_error: Exception | None = None
+        for _ in range(3):
+            try:
+                await self._throttle()
+                async with self.client.stream("GET", datasheet_url) as response:
+                    if response.status_code == 404:
+                        raise LcscPermanentError("Datasheet not found")
+                    if response.status_code == 403:
+                        raise LcscPermanentError("Access blocked by upstream (possible anti-bot protection)")
+                    if response.status_code in {429, 500, 502, 503, 504}:
+                        raise LcscApiError(f"Upstream temporary failure ({response.status_code})")
+                    if 400 <= response.status_code < 500:
+                        raise LcscPermanentError(f"Upstream client error ({response.status_code})")
+                    response.raise_for_status()
 
-        response = await self._request("GET", datasheet_url)
-        content = response.content
-        if len(content) > self.settings.max_pdf_size_bytes:
-            raise LcscApiError("PDF exceeds configured max size")
-        if not content.startswith(b"%PDF"):
-            raise LcscApiError("Downloaded file is not a valid PDF header")
+                    content_length = response.headers.get("content-length")
+                    if content_length and int(content_length) > self.settings.max_pdf_size_bytes:
+                        raise LcscApiError("PDF exceeds configured max size")
 
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        destination.write_bytes(content)
-        return hashlib.sha256(content).hexdigest(), len(content)
+                    chunks: list[bytes] = []
+                    total = 0
+                    prefix = b""
+                    async for chunk in response.aiter_bytes():
+                        if not chunk:
+                            continue
+                        total += len(chunk)
+                        if total > self.settings.max_pdf_size_bytes:
+                            raise LcscApiError("PDF exceeds configured max size")
+                        if len(prefix) < 4:
+                            prefix = (prefix + chunk)[:4]
+                        chunks.append(chunk)
+
+                    content = b"".join(chunks)
+                    if not prefix.startswith(b"%PDF"):
+                        raise LcscApiError("Downloaded file is not a valid PDF header")
+
+                    destination.parent.mkdir(parents=True, exist_ok=True)
+                    destination.write_bytes(content)
+                    return hashlib.sha256(content).hexdigest(), len(content)
+            except LcscPermanentError:
+                raise
+            except (httpx.RequestError, httpx.HTTPStatusError, LcscApiError) as exc:
+                last_error = exc
+                await asyncio.sleep(backoff)
+                backoff *= 2
+        raise LcscApiError(f"LCSC request failed: {last_error}") from last_error
 
 
 

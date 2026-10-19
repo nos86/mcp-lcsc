@@ -62,6 +62,46 @@ async def test_search_components(service):
 
 
 @pytest.mark.asyncio
+async def test_search_components_nested_items_fallback(tmp_path, monkeypatch):
+    class NestedStubClient(StubClient):
+        async def search(self, query: str, limit: int, in_stock_only: bool, basic_only: bool):
+            payload = {
+                "result": {
+                    "data": {
+                        "items": [
+                            {
+                                "productCode": "C1000",
+                                "productModel": "ABC",
+                                "brandNameEn": "Acme",
+                                "productDescEn": "Demo",
+                                "encapStandard": "SOT-23",
+                                "stockNumber": 10,
+                                "priceList": [{"startNumber": 1, "productPrice": 1.23, "currency": "USD"}],
+                            }
+                        ]
+                    }
+                }
+            }
+            return payload, "https://wmsc.lcsc.com/ftps/wm/search/global?keyword=ABC"
+
+    settings = Settings(
+        cache_dir=tmp_path,
+        preferred_currency="USD",
+        enable_playwright_fallback=False,
+        requests_per_second=100,
+        market_cache_ttl_seconds=600,
+        max_pdf_size_bytes=50 * 1024 * 1024,
+        user_agent="test-agent",
+    )
+    from lcsc_mcp import service as svc_module
+
+    monkeypatch.setattr(svc_module, "LcscClient", NestedStubClient)
+    service = LcscService(settings)
+    result = await service.search_components("ABC")
+    assert result["items"][0]["lcsc_id"] == "C1000"
+
+
+@pytest.mark.asyncio
 async def test_get_component(service):
     result = await service.get_component("C2040")
 
